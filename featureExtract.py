@@ -17,7 +17,6 @@ def featureExtract(path):
     directory_path = path
     buffers_pkl_path = path + '.pkl'
     features_pkl_path = path + 'features_.pkl'
-
     buffers = []
     features = []
 
