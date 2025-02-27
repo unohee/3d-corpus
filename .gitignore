@@ -1,0 +1,8 @@
+dataset/
+css_env/
+research_env/
+splitted_files/
+FSD50K.eval_audio/
+FSD50k.dev_audio/
+*.pkl
+__pycache__/
