@@ -7,7 +7,7 @@ from sklearn.manifold import TSNE
 from multiprocessing import Pool
 import soundfile as sf
 import asyncio
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 
 # 유틸리티 함수들
 def load_audio_file(file_path):
@@ -70,12 +70,11 @@ def detect_onsets_and_split(audio_data, sample_rate, original_filename,
         splitted_buffers.append((chunk_audio, sample_rate, chunk_filename, start, end))
 
     return splitted_buffers
-
 # 파일 로딩 및 온셋 분할 함수
 def readfile(directory_path, filename,
-             detect_onset=True,     # 온셋 분할 여부
-             output_dir=None,       # 분할된 파일 저장 경로
-             save_splitted_files=False):
+                detect_onset=True,     # 온셋 분할 여부
+                output_dir=None,       # 분할된 파일 저장 경로
+                save_splitted_files=False):
     """
     디렉토리에서 오디오 파일을 읽어들여 buffers 리스트 생성.
     """
@@ -99,18 +98,18 @@ def readfile(directory_path, filename,
         print(f"Found {len(audio_files)} audio files. Starting to load them...")
 
         # 워커 수를 2로 제한하여 메모리 사용량 조절
-        with Pool(processes=16) as pool:
+        with Pool(processes=4) as pool:
             loaded_results = list(tqdm(pool.imap(load_audio_file, audio_files),
-                                       total=len(audio_files),
-                                       desc="Loading audio files"))
+                                        total=len(audio_files),
+                                        desc="Loading audio files"))
         print(f"Loaded {len(loaded_results)} audio buffers in memory.")
 
         if detect_onset:
             print("Onset detection is enabled. Splitting audio by detected onsets...")
             # ThreadPoolExecutor를 사용하여 onset detection을 병렬 처리
-            with ThreadPoolExecutor(max_workers=16) as executor:
+            with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = []
-                for idx, (audio_data, sample_rate) in enumerate(loaded_results):
+                for idx, (audio_data, sample_rate) in enumerate(tqdm(loaded_results, desc="Submitting onset detection tasks")):
                     original_file = audio_files[idx]
                     futures.append(
                         executor.submit(
@@ -125,7 +124,7 @@ def readfile(directory_path, filename,
                 for future in tqdm(as_completed(futures), total=len(futures), desc="Onset Detection"):
                     buffers.extend(future.result())
         else:
-            for idx, (audio_data, sample_rate) in enumerate(loaded_results):
+            for idx, (audio_data, sample_rate) in enumerate(tqdm(loaded_results, desc="Appending buffers")):
                 buffers.append((audio_data, sample_rate, audio_files[idx]))
 
         with open(buffers_pkl_path, 'wb') as f:
@@ -136,13 +135,11 @@ def readfile(directory_path, filename,
     print(f"readfile 처리 시간: {end_time - start_time:.2f}초")
     return buffers
 
-# 버퍼별 특징 추출 함수
 def process_buffer(audio_data, sample_rate, filename):
     """
     각 오디오 버퍼(또는 분할된 구간)에 대해 MFCC, Spectral Centroid, Chroma를 순차적으로 추출.
-    오디오 에너지가 너무 낮거나, 신호 길이가 최소 FFT 길이보다 짧으면 처리를 중단합니다.
     """
-    # 최소 오디오 신호 길이와 에너지 체크
+    # 최소 오디오 신호 길이 체크
     min_fft = 256
     if np.max(np.abs(audio_data)) < 1e-4 or len(audio_data) < min_fft:
         return {
@@ -151,20 +148,25 @@ def process_buffer(audio_data, sample_rate, filename):
             'spectral_centroid_mean': 0.0,
             'chroma_mean': []
         }
-    
-    # MFCC 추출 (n_fft=256, hop_length 기본값 사용)
+
+    # 적절한 fmax 설정 (Nyquist 주파수 이하로)
+    fmax_value = min(sample_rate / 2, 8000)  # 8kHz 이상이면 8000으로 제한
+    n_mels_value = 40  # 기본값(128)보다 낮게 조정
+
+    # MFCC 추출
     mfccs = librosa.feature.mfcc(y=audio_data, sr=sample_rate,
-                                 n_mfcc=13, n_fft=256, hop_length=256)
+                                 n_mfcc=13, n_fft=256, hop_length=256,
+                                 fmax=fmax_value, n_mels=n_mels_value)
     mfccs_mean = np.mean(mfccs, axis=1)
 
-    # Spectral Centroid 추출 (n_fft=256)
+    # Spectral Centroid 추출
     spectral_centroid = librosa.feature.spectral_centroid(y=audio_data, sr=sample_rate,
                                                           n_fft=256, hop_length=256)
     spectral_centroid_mean = np.mean(spectral_centroid)
 
-    # Chroma 추출 (n_fft=256)
+    # Chroma 추출 (tuning 파라미터를 명시적으로 설정하여 피치 튜닝을 건너뜀)
     chroma = librosa.feature.chroma_stft(y=audio_data, sr=sample_rate,
-                                         n_fft=256, hop_length=256)
+                                         n_fft=256, hop_length=256, tuning=0.0)
     chroma_mean = np.mean(chroma, axis=1)
 
     feature_data = {
@@ -248,44 +250,15 @@ async def async_featureExtract(path):
 if __name__ == "__main__":
     # 1) 디렉토리 내 오디오 파일 로딩 + 온셋 분할 + 피클 저장
     #    'your_audio_directory' 위치에 있는 .wav/.mp3 파일을 모두 읽은 뒤, 온셋 단위로 분할하여 저장
-    readfile("your_audio_directory", "my_buffers",
+    readfile("./FSD50k.dev_audio", "FSD50k.dev_audio",
              detect_onset=True,            # 온셋 분할 여부
-             output_dir="splitted_files",  # 분할된 파일을 저장할 폴더(생략 가능)
-             save_splitted_files=True)     # 실제 파일로도 저장
+             output_dir="",  # 분할된 파일을 저장할 폴더(생략 가능)
+             save_splitted_files=False)     # 실제 파일로도 저장
 
     # 2) 특징 추출 (비동기로 실행)
     #    분할된 후의 버퍼를 불러와 feature extraction
-    asyncio.run(async_featureExtract("my_buffers"))
+    asyncio.run(async_featureExtract("FSD50k.dev_audio"))
 
 #!/usr/bin/env python3
 # filepath: /Volumes/Workroom_Studio/python/3d-corpus/featureExtractor_test.py
 
-import sys
-import os
-import asyncio
-from featureExtractor import readfile, async_featureExtract
-
-def main():
-    if len(sys.argv) >= 2:
-        folder = sys.argv[1]
-    else:
-        folder = input("분석할 폴더 경로를 입력하세요: ")
-
-    # 폴더 이름을 기반으로 피클 파일명을 결정 (예: my_folder.pkl, my_folder_features.pkl)
-    folder_name = os.path.basename(os.path.normpath(folder))
-    
-    print(f"Processing folder: {folder}")
-    # 1) 폴더 내 오디오 파일 로딩 + 온셋 분할 + 피클 저장
-    readfile(
-        directory_path=folder,
-        filename=folder_name,
-        detect_onset=True,
-        output_dir="splitted_files",
-        save_splitted_files=True
-    )
-    
-    # 2) 분할된 버퍼에 대해 특징 추출 (비동기)
-    asyncio.run(async_featureExtract(folder_name))
-
-if __name__ == "__main__":
-    main()
