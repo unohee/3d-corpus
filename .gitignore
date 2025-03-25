@@ -3,8 +3,12 @@ css_env/
 research_env/
 splitted_files/
 FSD50K.eval_audio/
-FSD50k.dev_audio/
+FSD50K.dev_audio/
+FSD50K.ground_truth/
+FSD50K.metadata/
+FSD50K.doc/
 *.pkl
 *.png
+!images/*.png
 *.zip
 __pycache__/
