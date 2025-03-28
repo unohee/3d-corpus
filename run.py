@@ -22,7 +22,7 @@ FSD50K_FILES = {
     ],
     "eval_audio": [
         "FSD50K.eval_audio.z01",
-        "FSD50K.eval_audio.zip"
+        "FSD50K.eval_audio.zip" 
     ],
     "metadata": [
         "FSD50K.ground_truth.zip",
@@ -57,16 +57,17 @@ def download_file(url, filename, desc=None):
                     pb.update(len(chunk))
                     f.write(chunk)
 
-def download_and_extract_fsd50k(base_dir="."):
+def download_and_extract_fsd50k(base_dir="dataset"):
     """
     Download and extract the FSD50K dataset.
     
     Args:
-        base_dir: Base directory to extract files to
+        base_dir: Base directory to extract files to (default: dataset)
     """
     print("Starting FSD50K dataset download and extraction...")
     
-    # Create temporary directory
+    # Create dataset and temporary directories
+    os.makedirs(base_dir, exist_ok=True)
     temp_dir = os.path.join(base_dir, "temp_download")
     os.makedirs(temp_dir, exist_ok=True)
     
@@ -140,11 +141,15 @@ def check_fsd50k_exists(folder):
     Returns:
         bool: True if the folder exists, False otherwise
     """
+    # Remove ./ prefix if exists
     if folder.startswith("./"):
         folder = folder[2:]
     
+    # Extract the base folder name
+    base_folder = os.path.basename(folder)
+    
     # Check if it's one of the standard FSD50K folders
-    if folder in ["FSD50K.dev_audio", "FSD50K.eval_audio"]:
+    if base_folder in ["FSD50K.dev_audio", "FSD50K.eval_audio"]:
         return os.path.exists(folder)
     
     # For user-specified folders
@@ -158,16 +163,16 @@ def parse_arguments():
         argparse.Namespace: Parsed arguments
     """
     parser = argparse.ArgumentParser(description='FSD50K Dataset Feature Extraction Tool')
-    parser.add_argument('folder', nargs='?', default='./FSD50K.dev_audio',
-                        help='Path to the audio folder to process (default: ./FSD50K.dev_audio)')
+    parser.add_argument('folder', nargs='?', default='dataset/FSD50K.dev_audio',
+                        help='Path to the audio folder to process (default: dataset/FSD50K.dev_audio)')
     parser.add_argument('--download-only', action='store_true',
                         help='Only download the FSD50K dataset without extracting features')
     parser.add_argument('--no-onset', action='store_true',
                         help='Disable onset detection and extract features for entire audio files')
     parser.add_argument('--save-splits', action='store_true',
                         help='Save onset-split audio files to disk')
-    parser.add_argument('--output-dir', default='splitted_files',
-                        help='Directory to save split audio files (default: splitted_files)')
+    parser.add_argument('--output-dir', default='dataset/splitted_files',
+                        help='Directory to save split audio files (default: dataset/splitted_files)')
     
     return parser.parse_args()
 
@@ -180,12 +185,7 @@ def main():
         # Check if FSD50K dataset exists, download if not
         if not check_fsd50k_exists(folder):
             print(f"FSD50K dataset not found at path '{folder}'.")
-            download_choice = input("Do you want to download the FSD50K dataset from Zenodo? (y/n): ")
-            if download_choice.lower() == 'y':
-                download_and_extract_fsd50k()
-            else:
-                print("Download canceled. Exiting program.")
-                return
+            download_and_extract_fsd50k()
         
         # If download-only option is specified
         if args.download_only:
